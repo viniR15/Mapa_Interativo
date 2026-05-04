@@ -1,4 +1,7 @@
+
 # 🗺️ Brasil — Mapa Socioepidemiológico Interativo
+
+Projeto desenvolvido por Vinícius Reis de Lemos motivado e co-participado pela Nutricionista residente em Neonatologia programa da Universidade Federal da Bahia (UFBA) Raquel Natali Cardoso Rebelo.
 
 Aplicação web interativa que exibe indicadores socioepidemiológicos dos 27 estados brasileiros (incluindo o Distrito Federal) em um mapa SVG navegável. Desenvolvida em HTML, CSS e JavaScript puros, sem dependências externas, sem frameworks, sem build step. A aplicação foi feita inline para facilitar o uso em dispositivos móveis de forma offline.
 
