@@ -1,6 +1,6 @@
 # 🗺️ Brasil — Mapa Socioepidemiológico Interativo
 
-Aplicação web interativa que exibe indicadores socioepidemiológicos dos 27 estados brasileiros (incluindo o Distrito Federal) em um mapa SVG navegável. Desenvolvida em HTML, CSS e JavaScript puros — sem dependências externas, sem frameworks, sem build step.
+Aplicação web interativa que exibe indicadores socioepidemiológicos dos 27 estados brasileiros (incluindo o Distrito Federal) em um mapa SVG navegável. Desenvolvida em HTML, CSS e JavaScript puros, sem dependências externas, sem frameworks, sem build step. A aplicação foi feita inline para facilitar o uso em dispositivos móveis de forma offline.
 
 ---
 
