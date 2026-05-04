@@ -1,0 +1,1154 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Brasil — Mapa Socioepidemiológico Interativo</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0a0f1a;
+    --surface: #111827;
+    --surface2: #1a2235;
+    --border: rgba(255,255,255,0.07);
+    --text: #e8edf5;
+    --muted: #8896b3;
+    --accent: #3dd68c;
+    --accent2: #5b8dee;
+    --danger: #ff5f5f;
+    --warn: #ffb347;
+    --state-base: #1e3a5f;
+    --state-hover: #2a5298;
+    --header-h: 0px; /* set by JS */
+  }
+
+  html, body {
+    height: 100%;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  /* Grain overlay */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+    opacity: 0.4;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* ── HEADER ── */
+  header {
+    position: relative;
+    z-index: 2;
+    flex-shrink: 0;
+    padding: 16px 32px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    border-bottom: 1px solid var(--border);
+    min-height: 0;
+  }
+
+  .header-title h1 {
+    font-family: 'Syne', sans-serif;
+    font-size: clamp(16px, 1.6vw, 28px);
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    background: linear-gradient(135deg, #e8edf5 0%, #3dd68c 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    white-space: nowrap;
+  }
+
+  .header-title p {
+    font-size: clamp(10px, 0.75vw, 13px);
+    color: var(--muted);
+    margin-top: 2px;
+    font-weight: 300;
+    white-space: nowrap;
+  }
+
+  .header-badge {
+    margin-left: auto;
+    flex-shrink: 0;
+    background: rgba(61,214,140,0.1);
+    border: 1px solid rgba(61,214,140,0.3);
+    color: var(--accent);
+    font-size: 10px;
+    font-weight: 600;
+    padding: 5px 12px;
+    border-radius: 100px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  /* ── MAIN LAYOUT ── */
+  .main {
+    position: relative;
+    z-index: 1;
+    flex: 1;
+    display: flex;
+    min-height: 0; /* critical — allows flex children to shrink below content size */
+    overflow: hidden;
+  }
+
+  /* ── MAP AREA ── */
+  .map-area {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    padding: 16px;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  #brazil-map {
+    /* Fill available space without overflowing */
+    max-width: 100%;
+    max-height: 100%;
+    width: auto;
+    height: auto;
+    display: block;
+    filter: drop-shadow(0 0 50px rgba(61,214,140,0.08));
+  }
+
+  #brazil-map path {
+    fill: var(--state-base);
+    stroke: rgba(61,214,140,0.25);
+    stroke-width: 0.8;
+    cursor: pointer;
+    transition: fill 0.22s ease, filter 0.22s ease, stroke-width 0.22s ease, stroke 0.22s ease;
+  }
+
+  #brazil-map path:hover {
+    fill: var(--state-hover);
+    stroke: rgba(61,214,140,0.7);
+    stroke-width: 1.2;
+    filter: drop-shadow(0 0 8px rgba(91,141,238,0.5));
+  }
+
+  #brazil-map path.active {
+    fill: #1a4a2e;
+    stroke: var(--accent);
+    stroke-width: 1.5;
+    filter: drop-shadow(0 0 12px rgba(61,214,140,0.4));
+  }
+
+  /* ── TOOLTIP ── */
+  .map-tooltip {
+    position: fixed;
+    background: var(--surface2);
+    border: 1px solid rgba(61,214,140,0.4);
+    color: var(--text);
+    padding: 7px 13px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    font-family: 'Syne', sans-serif;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.12s;
+    z-index: 300;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    white-space: nowrap;
+  }
+  .map-tooltip.visible { opacity: 1; }
+
+  /* ── SIDE PANEL ── */
+  .side-panel {
+    width: clamp(300px, 26vw, 400px);
+    flex-shrink: 0;
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-height: 0;
+  }
+
+  .panel-placeholder {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 32px 24px;
+    text-align: center;
+    gap: 14px;
+    color: var(--muted);
+  }
+  .panel-placeholder svg { opacity: 0.3; }
+  .panel-placeholder p { font-size: 13px; line-height: 1.7; }
+  .panel-placeholder strong { color: var(--accent); display: block; font-size: 15px; font-family: 'Syne', sans-serif; margin-bottom: 4px; }
+
+  /* ── DATA CARD ── */
+  .data-card {
+    display: none;
+    flex-direction: column;
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255,255,255,0.1) transparent;
+  }
+  .data-card.active { display: flex; }
+
+  .card-header {
+    padding: 20px 22px 16px;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, rgba(61,214,140,0.06) 0%, transparent 100%);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    backdrop-filter: blur(12px);
+    flex-shrink: 0;
+  }
+
+  .state-label {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    margin-bottom: 3px;
+  }
+  .state-name {
+    font-family: 'Syne', sans-serif;
+    font-size: clamp(18px, 1.4vw, 24px);
+    font-weight: 800;
+    letter-spacing: -0.5px;
+  }
+  .state-region { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+  .card-body { padding: 16px 22px 28px; display: flex; flex-direction: column; gap: 16px; }
+
+  /* ── METRIC GROUPS ── */
+  .metric-section-title {
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: var(--muted);
+    margin-bottom: 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .metrics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+  .metric-item {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px;
+    transition: border-color 0.2s;
+  }
+  .metric-item:hover { border-color: rgba(61,214,140,0.3); }
+
+  .metric-label { font-size: 9px; color: var(--muted); font-weight: 500; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .metric-value { font-family: 'Syne', sans-serif; font-size: clamp(15px, 1.1vw, 19px); font-weight: 700; }
+  .metric-value.good   { color: var(--accent); }
+  .metric-value.medium { color: var(--warn); }
+  .metric-value.bad    { color: var(--danger); }
+  .metric-sub { font-size: 10px; color: var(--muted); margin-top: 2px; }
+
+  /* ── RACE BARS ── */
+  .race-bars { display: flex; flex-direction: column; gap: 7px; }
+  .race-row  { display: flex; align-items: center; gap: 8px; }
+  .race-name { font-size: 11px; width: 66px; color: var(--text); flex-shrink: 0; }
+  .race-bar-wrap { flex: 1; height: 7px; background: rgba(255,255,255,0.06); border-radius: 100px; overflow: hidden; }
+  .race-bar  { height: 100%; border-radius: 100px; transition: width 0.8s cubic-bezier(0.16,1,0.3,1); }
+  .race-pct  { font-size: 10px; color: var(--muted); width: 30px; text-align: right; flex-shrink: 0; }
+
+  .bar-branco   { background: linear-gradient(90deg, #7ab8f5, #5b8dee); }
+  .bar-pardo    { background: linear-gradient(90deg, #d4a574, #c4874a); }
+  .bar-preto    { background: linear-gradient(90deg, #9b72cf, #7b52af); }
+  .bar-indigena { background: linear-gradient(90deg, #3dd68c, #2bb876); }
+  .bar-amarelo  { background: linear-gradient(90deg, #ffe066, #ffc800); }
+
+  /* ── IDH & RAÇA HERO ── */
+  .hero-strip {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 4px;
+  }
+  .hero-card {
+    background: linear-gradient(135deg, rgba(61,214,140,0.08) 0%, rgba(91,141,238,0.06) 100%);
+    border: 1px solid rgba(61,214,140,0.2);
+    border-radius: 12px;
+    padding: 14px 14px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .hero-label {
+    font-size: 8px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--muted);
+  }
+  .hero-value {
+    font-family: 'Syne', sans-serif;
+    font-size: 26px;
+    font-weight: 800;
+    line-height: 1;
+  }
+  .hero-value.good   { color: var(--accent); }
+  .hero-value.medium { color: var(--warn); }
+  .hero-value.bad    { color: var(--danger); }
+  .hero-sub {
+    font-size: 10px;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+  .raca-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: 'Syne', sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+  }
+  .raca-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .raca-dot.branco   { background: #7ab8f5; }
+  .raca-dot.pardo    { background: #d4a574; }
+  .raca-dot.preto    { background: #9b72cf; }
+  .raca-dot.indigena { background: #3dd68c; }
+  .raca-dot.amarelo  { background: #ffe066; }
+  .idh-class-badge {
+    display: inline-block;
+    font-size: 9px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 100px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-top: 4px;
+  }
+  .idh-class-badge.alto   { background: rgba(61,214,140,0.15); color: var(--accent); border: 1px solid rgba(61,214,140,0.3); }
+  .idh-class-badge.medio  { background: rgba(255,179,71,0.15);  color: var(--warn);   border: 1px solid rgba(255,179,71,0.3); }
+  .idh-class-badge.baixo  { background: rgba(255,95,95,0.15);   color: var(--danger); border: 1px solid rgba(255,95,95,0.3); }
+
+  /* ── RISK METERS ── */
+  .risk-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .risk-item {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px;
+  }
+  .risk-label { font-size: 9px; color: var(--muted); font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 7px; }
+  .risk-value-row { display: flex; align-items: baseline; gap: 4px; }
+  .risk-number { font-family: 'Syne', sans-serif; font-size: 20px; font-weight: 700; }
+  .risk-unit   { font-size: 9px; color: var(--muted); }
+  .risk-bar-wrap { margin-top: 7px; height: 4px; background: rgba(255,255,255,0.06); border-radius: 100px; overflow: hidden; }
+  .risk-bar { height: 100%; border-radius: 100px; }
+  .risk-bar.injuria   { background: linear-gradient(90deg, #ffb347, #ff7a00); }
+  .risk-bar.violencia { background: linear-gradient(90deg, #ff5f5f, #cc0000); }
+  .risk-rating     { font-size: 10px; margin-top: 4px; font-weight: 600; }
+  .risk-rating.low { color: var(--accent); }
+  .risk-rating.mid { color: var(--warn); }
+  .risk-rating.high{ color: var(--danger); }
+
+  /* ── LEGEND ── */
+  .legend {
+    position: absolute;
+    bottom: 16px;
+    left: 16px;
+    background: rgba(10,15,26,0.88);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 14px;
+    font-size: 10px;
+    color: var(--muted);
+    pointer-events: none;
+  }
+  .legend-title { font-weight: 600; color: var(--text); margin-bottom: 5px; font-size: 9px; text-transform: uppercase; letter-spacing: 1px; }
+  .legend-row { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; }
+  .legend-dot { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+
+  /* ── MODAL BALLOON (used on mobile AND desktop click) ── */
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.65);
+    backdrop-filter: blur(5px);
+    z-index: 500;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  .modal-overlay.open { display: flex; animation: fadeIn 0.18s ease; }
+
+  @keyframes fadeIn  { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes slideUp { from { opacity: 0; transform: translateY(24px) scale(0.97); } to { opacity: 1; transform: none; } }
+
+  .modal-balloon {
+    background: var(--surface);
+    border: 1px solid rgba(61,214,140,0.3);
+    border-radius: 20px;
+    max-width: 520px;
+    width: 100%;
+    max-height: 88dvh;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255,255,255,0.1) transparent;
+    box-shadow:
+      0 0 0 1px rgba(61,214,140,0.08),
+      0 32px 80px rgba(0,0,0,0.75),
+      0 8px 24px rgba(0,0,0,0.5),
+      inset 0 1px 0 rgba(255,255,255,0.05);
+    animation: slideUp 0.32s cubic-bezier(0.16,1,0.3,1);
+  }
+
+  .modal-header {
+    padding: 24px 24px 18px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    background: linear-gradient(135deg, rgba(61,214,140,0.07) 0%, transparent 60%);
+    border-radius: 20px 20px 0 0;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    backdrop-filter: blur(12px);
+  }
+
+  .modal-close {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+    flex-shrink: 0;
+    line-height: 1;
+  }
+  .modal-close:hover { background: var(--danger); color: #fff; border-color: var(--danger); }
+
+  .modal-body { padding: 20px 24px 28px; display: flex; flex-direction: column; gap: 18px; }
+
+  /* ════════════════════════════════════
+     RESPONSIVE BREAKPOINTS
+     ════════════════════════════════════ */
+
+  /* Tablet landscape / small desktop  (< 1024px) */
+  @media (max-width: 1024px) {
+    .side-panel { width: clamp(260px, 32vw, 340px); }
+  }
+
+  /* Tablet portrait / large phone (< 768px) — stack vertically */
+  @media (max-width: 768px) {
+    body { overflow: auto; height: auto; min-height: 100dvh; }
+
+    header {
+      padding: 14px 16px;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .header-title h1 { font-size: 17px; white-space: normal; }
+    .header-title p  { display: none; }
+    .header-badge    { margin-left: 0; font-size: 9px; padding: 4px 10px; }
+
+    .main {
+      flex-direction: column;
+      overflow: visible;
+      min-height: 0;
+    }
+
+    .map-area {
+      height: 55vw;
+      min-height: 280px;
+      max-height: 420px;
+      padding: 12px;
+    }
+
+    #brazil-map {
+      max-width: 100%;
+      max-height: 100%;
+    }
+
+    .side-panel {
+      width: 100%;
+      border-left: none;
+      border-top: 1px solid var(--border);
+      max-height: none;
+      overflow: visible;
+    }
+
+    .data-card {
+      overflow: visible;
+      max-height: none;
+    }
+
+    .legend { bottom: 10px; left: 10px; }
+  }
+
+  /* Small phone (< 480px) */
+  @media (max-width: 480px) {
+    .metrics-grid { grid-template-columns: 1fr; }
+    .risk-grid    { grid-template-columns: 1fr; }
+    .modal-balloon { border-radius: 14px; }
+    .modal-header  { padding: 18px 18px 14px; border-radius: 14px 14px 0 0; }
+    .modal-body    { padding: 16px 18px 24px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="map-tooltip" id="tooltip"></div>
+
+<header>
+  <div class="header-title">
+    <h1>Brasil — Mapa Socioepidemiológico</h1>
+    <p>IDH · Raça Predominante · Mortalidade · Doenças Infecciosas · Saneamento por Estado</p>
+  </div>
+  <span class="header-badge">IBGE · DATASUS · SVS · 2022–2024</span>
+</header>
+
+<div class="main">
+  <div class="map-area">
+    <!-- SVG do mapa do Brasil -->
+    <svg id="brazil-map" viewBox="0 0 800 900" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
+
+      <!-- NORTE -->
+      <path id="AM" data-state="AM" d="M 70,130 L 90,110 L 130,100 L 180,95 L 230,105 L 265,95 L 285,115 L 275,145 L 285,175 L 270,200 L 280,230 L 260,255 L 230,260 L 210,285 L 180,280 L 155,295 L 130,280 L 100,285 L 80,260 L 60,235 L 55,200 L 65,170 Z"/>
+      <path id="PA" data-state="PA" d="M 285,115 L 310,100 L 350,90 L 390,95 L 420,110 L 445,105 L 465,120 L 460,150 L 440,170 L 445,200 L 430,225 L 400,235 L 380,260 L 350,265 L 320,255 L 295,240 L 280,230 L 270,200 L 285,175 L 275,145 Z"/>
+      <path id="RR" data-state="RR" d="M 180,95 L 190,65 L 210,45 L 240,35 L 260,50 L 275,75 L 265,95 L 230,105 Z"/>
+      <path id="AP" data-state="AP" d="M 445,105 L 460,80 L 480,65 L 500,75 L 510,100 L 495,120 L 465,120 Z"/>
+      <path id="AC" data-state="AC" d="M 55,200 L 60,235 L 80,260 L 70,285 L 50,300 L 30,285 L 20,260 L 35,230 Z"/>
+      <path id="RO" data-state="RO" d="M 100,285 L 130,280 L 155,295 L 155,330 L 140,355 L 115,360 L 90,345 L 80,315 L 80,290 Z"/>
+      <path id="TO" data-state="TO" d="M 380,260 L 400,235 L 430,225 L 445,240 L 450,270 L 440,310 L 420,340 L 400,355 L 375,345 L 360,315 L 365,285 Z"/>
+
+      <!-- NORDESTE -->
+      <path id="MA" data-state="MA" d="M 445,105 L 495,120 L 510,100 L 530,110 L 545,135 L 540,165 L 520,185 L 495,190 L 470,175 L 455,155 L 445,125 Z"/>
+      <path id="PI" data-state="PI" d="M 540,165 L 560,150 L 580,155 L 590,180 L 580,210 L 560,225 L 540,220 L 520,205 L 520,185 Z"/>
+      <path id="CE" data-state="CE" d="M 580,155 L 610,145 L 635,155 L 640,180 L 625,200 L 600,205 L 580,210 Z"/>
+      <path id="RN" data-state="RN" d="M 635,155 L 660,148 L 670,165 L 660,180 L 640,180 Z"/>
+      <path id="PB" data-state="PB" d="M 625,200 L 645,192 L 665,198 L 660,215 L 640,218 L 620,215 Z"/>
+      <path id="PE" data-state="PE" d="M 580,210 L 600,205 L 620,215 L 640,218 L 635,235 L 610,242 L 580,240 L 565,230 Z"/>
+      <path id="AL" data-state="AL" d="M 635,235 L 655,230 L 665,242 L 655,255 L 640,255 L 630,248 Z"/>
+      <path id="SE" data-state="SE" d="M 640,255 L 655,255 L 665,265 L 655,278 L 638,272 Z"/>
+      <path id="BA" data-state="BA" d="M 520,205 L 540,220 L 560,225 L 580,240 L 610,242 L 630,248 L 638,272 L 635,305 L 615,330 L 590,355 L 560,365 L 530,360 L 505,340 L 495,310 L 480,285 L 470,260 L 475,235 L 490,220 L 500,200 Z"/>
+
+      <!-- CENTRO-OESTE -->
+      <path id="MT" data-state="MT" d="M 155,295 L 180,280 L 210,285 L 230,260 L 260,255 L 295,240 L 320,255 L 350,265 L 365,285 L 360,315 L 340,345 L 310,360 L 285,370 L 260,365 L 235,355 L 210,340 L 190,315 L 168,310 Z"/>
+      <path id="GO" data-state="GO" d="M 375,345 L 400,355 L 420,340 L 440,310 L 450,270 L 470,260 L 480,285 L 475,235 L 460,220 L 440,225 L 420,240 L 405,265 L 395,295 L 390,325 Z"/>
+      <path id="MS" data-state="MS" d="M 210,340 L 235,355 L 260,365 L 285,370 L 310,360 L 340,345 L 355,370 L 350,400 L 330,420 L 305,430 L 275,425 L 250,410 L 225,395 L 205,370 Z"/>
+      <path id="DF" data-state="DF" d="M 418,298 L 427,294 L 432,305 L 422,310 Z"/>
+
+      <!-- SUDESTE -->
+      <path id="MG" data-state="MG" d="M 390,325 L 395,295 L 420,240 L 440,225 L 460,220 L 475,235 L 490,220 L 500,200 L 520,205 L 500,220 L 505,245 L 495,270 L 495,310 L 505,340 L 490,360 L 465,375 L 435,385 L 410,375 L 390,360 L 375,345 Z"/>
+      <path id="ES" data-state="ES" d="M 490,360 L 505,340 L 520,350 L 525,375 L 510,390 L 495,382 Z"/>
+      <path id="RJ" data-state="RJ" d="M 465,375 L 490,360 L 495,382 L 510,390 L 505,405 L 485,415 L 465,408 L 452,395 Z"/>
+      <path id="SP" data-state="SP" d="M 390,360 L 410,375 L 435,385 L 452,395 L 465,408 L 460,430 L 440,445 L 415,450 L 390,440 L 368,425 L 360,400 L 365,375 Z"/>
+
+      <!-- SUL -->
+      <path id="PR" data-state="PR" d="M 350,400 L 365,375 L 368,425 L 390,440 L 415,450 L 410,470 L 385,480 L 355,475 L 330,460 L 320,438 L 330,420 Z"/>
+      <path id="SC" data-state="SC" d="M 320,438 L 330,460 L 355,475 L 385,480 L 382,500 L 360,515 L 335,510 L 310,495 L 300,474 Z"/>
+      <path id="RS" data-state="RS" d="M 300,474 L 310,495 L 335,510 L 360,515 L 382,500 L 390,525 L 375,550 L 350,565 L 320,565 L 295,550 L 275,528 L 275,500 L 285,480 Z"/>
+    </svg>
+
+    <div class="legend">
+      <div class="legend-title">Estado</div>
+      <div class="legend-row"><div class="legend-dot" style="background:#1e3a5f"></div> Normal</div>
+      <div class="legend-row"><div class="legend-dot" style="background:#2a5298"></div> Hover</div>
+      <div class="legend-row"><div class="legend-dot" style="background:#1a4a2e; border:1px solid #3dd68c"></div> Selecionado</div>
+    </div>
+  </div>
+
+  <!-- SIDE PANEL -->
+  <div class="side-panel">
+    <div class="panel-placeholder" id="placeholder">
+      <svg width="56" height="56" fill="none" viewBox="0 0 56 56"><circle cx="28" cy="28" r="27" stroke="#3dd68c" stroke-width="1.5" stroke-dasharray="4 4"/><path d="M28 18v10l6 6" stroke="#3dd68c" stroke-width="1.5" stroke-linecap="round"/></svg>
+      <p><strong>Selecione um estado</strong>Clique em qualquer estado para ver o perfil socioepidemiológico: IDH, raça predominante, mortalidade, doenças infecciosas e saneamento.</p>
+    </div>
+    <div class="data-card" id="data-card">
+      <div class="card-header" id="card-header"></div>
+      <div class="card-body" id="card-body"></div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL BALLOON -->
+<div class="modal-overlay" id="modal-overlay">
+  <div class="modal-balloon" id="modal-balloon">
+    <div class="modal-header" id="modal-header"></div>
+    <div class="modal-body" id="modal-body"></div>
+  </div>
+</div>
+
+<script>
+// ========== DADOS SOCIOEPIDEMIOLÓGICOS POR ESTADO ==========
+// Fontes: IBGE (Censo 2022), DATASUS/MS 2022, SVS/MS, SIM/SVS, SINAN, ANS, IPEA, Atlas Brasil
+// mortalidade infantil: óbitos/<1 ano por 1.000 NV | esperanca_vida: anos
+// obitos_cardiovascular, obitos_cancer, obitos_respiratorio, obitos_diabetes: taxa/100k hab
+// cobertura_sus: % pop dependente SUS | cobertura_psiquiatrica: leitos psiq/100k
+// mortalidade_materna: óbitos/100k NV | mortalidade_infantil: por 1.000 NV
+// incidencia_tuberculose, incidencia_dengue, incidencia_sifilis: por 100k hab
+// saneamento_basico: % domicílios c/ acesso adequado | agua_tratada: % domicílios
+
+const stateData = {
+  AM: {
+    name:"Amazonas", region:"Região Norte", uf:"AM", pop: 4.2,
+    idh:0.708, raca:{ branco:22, pardo:67, preto:5, indigena:5, amarelo:1 }, raca_pred:"Pardo",
+    esperanca_vida:72.1, mortalidade_infantil:19.8, mortalidade_materna:85.4,
+    cobertura_sus:83, cobertura_psiquiatrica:4.2,
+    obitos_cardiovascular:178, obitos_cancer:92, obitos_respiratorio:68, obitos_diabetes:44,
+    incidencia_tuberculose:68.4, incidencia_dengue:142, incidencia_sifilis:38.6,
+    saneamento_basico:41, agua_tratada:57,
+    nota:"Maior estado em extensão territorial. Acesso à saúde é crítico nas populações ribeirinhas e indígenas. Alta incidência de tuberculose, especialmente entre povos originários. Cobertura de saneamento entre as mais baixas do país."
+  },
+  PA: {
+    name:"Pará", region:"Região Norte", uf:"PA", pop: 8.7,
+    idh:0.698, raca:{ branco:24, pardo:64, preto:8, indigena:3, amarelo:1 }, raca_pred:"Pardo",
+    esperanca_vida:71.4, mortalidade_infantil:17.6, mortalidade_materna:78.2,
+    cobertura_sus:85, cobertura_psiquiatrica:3.8,
+    obitos_cardiovascular:189, obitos_cancer:98, obitos_respiratorio:72, obitos_diabetes:48,
+    incidencia_tuberculose:54.2, incidencia_dengue:312, incidencia_sifilis:44.1,
+    saneamento_basico:38, agua_tratada:52,
+    nota:"Alto índice de internações por doenças infecciosas e parasitárias. Dengue endêmica em Belém e cidades do interior. Mortalidade materna elevada pela dificuldade de acesso a maternidades de risco habitual."
+  },
+  RR: {
+    name:"Roraima", region:"Região Norte", uf:"RR", pop: 0.65,
+    idh:0.707, raca:{ branco:35, pardo:47, preto:6, indigena:11, amarelo:1 }, raca_pred:"Pardo",
+    esperanca_vida:72.8, mortalidade_infantil:16.2, mortalidade_materna:92.1,
+    cobertura_sus:79, cobertura_psiquiatrica:2.9,
+    obitos_cardiovascular:162, obitos_cancer:84, obitos_respiratorio:58, obitos_diabetes:38,
+    incidencia_tuberculose:81.3, incidencia_dengue:88, incidencia_sifilis:52.4,
+    saneamento_basico:45, agua_tratada:60,
+    nota:"Maior proporção de indígenas entre estados brasileiros. Crise migratória venezuelana sobrecarregou o sistema de saúde. Altas taxas de tuberculose e sífilis congênita, especialmente entre populações vulneráveis."
+  },
+  AP: {
+    name:"Amapá", region:"Região Norte", uf:"AP", pop: 0.87,
+    idh:0.708, raca:{ branco:23, pardo:65, preto:9, indigena:2, amarelo:1 }, raca_pred:"Pardo",
+    esperanca_vida:73.1, mortalidade_infantil:18.4, mortalidade_materna:88.7,
+    cobertura_sus:81, cobertura_psiquiatrica:3.1,
+    obitos_cardiovascular:171, obitos_cancer:89, obitos_respiratorio:64, obitos_diabetes:41,
+    incidencia_tuberculose:46.8, incidencia_dengue:198, incidencia_sifilis:48.2,
+    saneamento_basico:43, agua_tratada:55,
+    nota:"Infraestrutura de saúde concentrada em Macapá. Interior com dificuldade de acesso a especialidades. Alta mortalidade materna relacionada à falta de maternidades de risco."
+  },
+  AC: {
+    name:"Acre", region:"Região Norte", uf:"AC", pop: 0.91,
+    idh:0.700, raca:{ branco:26, pardo:60, preto:6, indigena:7, amarelo:1 }, raca_pred:"Pardo",
+    esperanca_vida:72.4, mortalidade_infantil:16.8, mortalidade_materna:74.3,
+    cobertura_sus:86, cobertura_psiquiatrica:3.4,
+    obitos_cardiovascular:165, obitos_cancer:86, obitos_respiratorio:61, obitos_diabetes:39,
+    incidencia_tuberculose:58.9, incidencia_dengue:167, incidencia_sifilis:35.7,
+    saneamento_basico:48, agua_tratada:62,
+    nota:"Forte presença indígena nas zonas de fronteira com Peru e Bolívia. Malária ainda presente em municípios ribeirinhos. Doenças negligenciadas como leishmaniose têm alta incidência."
+  },
+  RO: {
+    name:"Rondônia", region:"Região Norte", uf:"RO", pop: 1.8,
+    idh:0.725, raca:{ branco:37, pardo:52, preto:7, indigena:3, amarelo:1 }, raca_pred:"Pardo",
+    esperanca_vida:73.6, mortalidade_infantil:14.9, mortalidade_materna:68.4,
+    cobertura_sus:78, cobertura_psiquiatrica:3.6,
+    obitos_cardiovascular:174, obitos_cancer:94, obitos_respiratorio:66, obitos_diabetes:43,
+    incidencia_tuberculose:42.1, incidencia_dengue:224, incidencia_sifilis:41.8,
+    saneamento_basico:51, agua_tratada:65,
+    nota:"Dengue com surtos frequentes. Região de colonização recente com histórico de malária. Rede de atenção básica em expansão, mas especialidades com baixa cobertura no interior."
+  },
+  TO: {
+    name:"Tocantins", region:"Região Norte", uf:"TO", pop: 1.6,
+    idh:0.726, raca:{ branco:28, pardo:60, preto:9, indigena:2, amarelo:1 }, raca_pred:"Pardo",
+    esperanca_vida:74.2, mortalidade_infantil:13.7, mortalidade_materna:62.1,
+    cobertura_sus:77, cobertura_psiquiatrica:3.9,
+    obitos_cardiovascular:182, obitos_cancer:97, obitos_respiratorio:69, obitos_diabetes:46,
+    incidencia_tuberculose:28.4, incidencia_dengue:389, incidencia_sifilis:36.2,
+    saneamento_basico:54, agua_tratada:68,
+    nota:"Alta incidência de dengue com surtos anuais em Palmas. Estado jovem com rede de saúde ainda em estruturação. Mortalidade cardiovascular elevada para o perfil etário da população."
+  },
+  MA: {
+    name:"Maranhão", region:"Região Nordeste", uf:"MA", pop: 7.1,
+    idh:0.676, raca:{ branco:18, pardo:65, preto:14, indigena:2, amarelo:1 }, raca_pred:"Pardo",
+    esperanca_vida:70.8, mortalidade_infantil:22.4, mortalidade_materna:96.3,
+    cobertura_sus:91, cobertura_psiquiatrica:2.7,
+    obitos_cardiovascular:194, obitos_cancer:102, obitos_respiratorio:78, obitos_diabetes:52,
+    incidencia_tuberculose:48.6, incidencia_dengue:276, incidencia_sifilis:42.8,
+    saneamento_basico:28, agua_tratada:44,
+    nota:"Um dos piores indicadores de saúde do Brasil. Mortalidade infantil e materna entre as mais altas. Cobertura de saneamento básico precária agrava doenças diarreicas e parasitárias. Malnutrição infantil persistente."
+  },
+  PI: {
+    name:"Piauí", region:"Região Nordeste", uf:"PI", pop: 3.3,
+    idh:0.697, raca:{ branco:22, pardo:62, preto:13, indigena:2, amarelo:1 }, raca_pred:"Pardo",
+    esperanca_vida:71.6, mortalidade_infantil:17.8, mortalidade_materna:84.2,
+    cobertura_sus:89, cobertura_psiquiatrica:2.9,
+    obitos_cardiovascular:198, obitos_cancer:106, obitos_respiratorio:74, obitos_diabetes:50,
+    incidencia_tuberculose:32.4, incidencia_dengue:318, incidencia_sifilis:38.9,
+    saneamento_basico:31, agua_tratada:48,
+    nota:"Semiárido com elevada mortalidade por doenças crônicas. Alta carga de hipertensão e diabetes não tratados. Desnutrição infantil associada à insegurança alimentar nas zonas rurais."
+  },
+  CE: {
+    name:"Ceará", region:"Região Nordeste", uf:"CE", pop: 9.2,
+    idh:0.714, raca:{ branco:30, pardo:58, preto:9, indigena:2, amarelo:1 }, raca_pred:"Pardo",
+    esperanca_vida:73.1, mortalidade_infantil:14.6, mortalidade_materna:72.8,
+    cobertura_sus:88, cobertura_psiquiatrica:3.4,
+    obitos_cardiovascular:192, obitos_cancer:109, obitos_respiratorio:76, obitos_diabetes:54,
+    incidencia_tuberculose:38.7, incidencia_dengue:428, incidencia_sifilis:47.1,
+    saneamento_basico:35, agua_tratada:58,
+    nota:"Dengue hiperendêmica, com surtos devastadores em Fortaleza. Rede de atenção oncológica em expansão via HGF e HAOC. Políticas de saúde mental inovadoras, mas cobertura psiquiátrica ainda insuficiente."
+  },
+  RN: {
+    name:"Rio Grande do Norte", region:"Região Nordeste", uf:"RN", pop: 3.5,
+    idh:0.731, raca:{ branco:35, pardo:54, preto:8, indigena:2, amarelo:1 }, raca_pred:"Pardo",
+    esperanca_vida:74.2, mortalidade_infantil:13.2, mortalidade_materna:68.4,
+    cobertura_sus:85, cobertura_psiquiatrica:3.6,
+    obitos_cardiovascular:188, obitos_cancer:104, obitos_respiratorio:72, obitos_diabetes:49,
+    incidencia_tuberculose:34.2, incidencia_dengue:344, incidencia_sifilis:44.6,
+    saneamento_basico:42, agua_tratada:63,
+    nota:"Rede hospitalar relativamente estruturada em Natal. Alta prevalência de doenças cardiovasculares. Sífilis congênita em crescimento. Cobertura de saúde bucal abaixo da média nacional."
+  },
+  PB: {
+    name:"Paraíba", region:"Região Nordeste", uf:"PB", pop: 4.0,
+    idh:0.720, raca:{ branco:34, pardo:55, preto:8, indigena:2, amarelo:1 }, raca_pred:"Pardo",
+    esperanca_vida:73.8, mortalidade_infantil:13.8, mortalidade_materna:71.2,
+    cobertura_sus:87, cobertura_psiquiatrica:3.8,
+    obitos_cardiovascular:196, obitos_cancer:107, obitos_respiratorio:73, obitos_diabetes:51,
+    incidencia_tuberculose:36.1, incidencia_dengue:302, incidencia_sifilis:40.3,
+    saneamento_basico:39, agua_tratada:61,
+    nota:"Alta mortalidade por doenças cardiovasculares no sertão. CAPS em expansão, mas com escassez de psiquiatras. Leishmaniose visceral endêmica em municípios do agreste."
+  },
+  PE: {
+    name:"Pernambuco", region:"Região Nordeste", uf:"PE", pop: 9.7,
+    idh:0.727, raca:{ branco:32, pardo:56, preto:9, indigena:2, amarelo:1 }, raca_pred:"Pardo",
+    esperanca_vida:73.4, mortalidade_infantil:14.1, mortalidade_materna:74.6,
+    cobertura_sus:86, cobertura_psiquiatrica:4.1,
+    obitos_cardiovascular:191, obitos_cancer:111, obitos_respiratorio:77, obitos_diabetes:53,
+    incidencia_tuberculose:42.8, incidencia_dengue:384, incidencia_sifilis:49.2,
+    saneamento_basico:44, agua_tratada:65,
+    nota:"Epicentro da epidemia de microcefalia por Zika em 2015-16. Alta carga de arboviroses. Rede oncológica de referência no Nordeste (Hospital do Câncer de Pernambuco). Tuberculose elevada nas periferias do Recife."
+  },
+  AL: {
+    name:"Alagoas", region:"Região Nordeste", uf:"AL", pop: 3.3,
+    idh:0.683, raca:{ branco:28, pardo:57, preto:12, indigena:2, amarelo:1 }, raca_pred:"Pardo",
+    esperanca_vida:70.4, mortalidade_infantil:19.2, mortalidade_materna:88.6,
+    cobertura_sus:92, cobertura_psiquiatrica:2.6,
+    obitos_cardiovascular:202, obitos_cancer:108, obitos_respiratorio:79, obitos_diabetes:56,
+    incidencia_tuberculose:44.3, incidencia_dengue:268, incidencia_sifilis:43.7,
+    saneamento_basico:26, agua_tratada:41,
+    nota:"Piores indicadores sociossanitários do Brasil. Mortalidade infantil elevada por desnutrição e doenças infecciosas. Menor cobertura de saneamento básico nacional. Alta prevalência de desnutrição crônica infantil."
+  },
+  SE: {
+    name:"Sergipe", region:"Região Nordeste", uf:"SE", pop: 2.3,
+    idh:0.720, raca:{ branco:27, pardo:59, preto:11, indigena:2, amarelo:1 }, raca_pred:"Pardo",
+    esperanca_vida:73.6, mortalidade_infantil:14.4, mortalidade_materna:70.8,
+    cobertura_sus:88, cobertura_psiquiatrica:3.2,
+    obitos_cardiovascular:186, obitos_cancer:103, obitos_respiratorio:70, obitos_diabetes:48,
+    incidencia_tuberculose:37.6, incidencia_dengue:294, incidencia_sifilis:41.4,
+    saneamento_basico:40, agua_tratada:62,
+    nota:"Menor estado do Brasil com rede hospitalar concentrada em Aracaju. Alta carga de arboviroses. Doenças crônicas não transmissíveis são principal causa de mortalidade adulta."
+  },
+  BA: {
+    name:"Bahia", region:"Região Nordeste", uf:"BA", pop: 14.9,
+    idh:0.714, raca:{ branco:20, pardo:58, preto:20, indigena:1, amarelo:1 }, raca_pred:"Pardo",
+    esperanca_vida:72.8, mortalidade_infantil:16.2, mortalidade_materna:82.4,
+    cobertura_sus:87, cobertura_psiquiatrica:3.6,
+    obitos_cardiovascular:194, obitos_cancer:105, obitos_respiratorio:76, obitos_diabetes:52,
+    incidencia_tuberculose:46.2, incidencia_dengue:322, incidencia_sifilis:46.8,
+    saneamento_basico:33, agua_tratada:54,
+    nota:"Grande extensão territorial com desigualdade marcante na oferta de serviços. Dengue e chikungunya endêmicos. Alta mortalidade materna nas regiões do sertão. Esquistossomose ainda prevalente no recôncavo baiano."
+  },
+  MT: {
+    name:"Mato Grosso", region:"Região Centro-Oeste", uf:"MT", pop: 3.6,
+    idh:0.769, raca:{ branco:42, pardo:46, preto:7, indigena:4, amarelo:1 }, raca_pred:"Branco",
+    esperanca_vida:74.8, mortalidade_infantil:12.4, mortalidade_materna:58.2,
+    cobertura_sus:74, cobertura_psiquiatrica:4.4,
+    obitos_cardiovascular:176, obitos_cancer:99, obitos_respiratorio:67, obitos_diabetes:45,
+    incidencia_tuberculose:24.8, incidencia_dengue:412, incidencia_sifilis:38.4,
+    saneamento_basico:57, agua_tratada:72,
+    nota:"Dengue com surtos expressivos no verão. Doenças crônicas em crescimento pelo padrão alimentar do agronegócio. Intoxicações por agrotóxicos são notificações frequentes no SINAN. Povos indígenas com acesso limitado à saúde."
+  },
+  GO: {
+    name:"Goiás", region:"Região Centro-Oeste", uf:"GO", pop: 7.2,
+    idh:0.771, raca:{ branco:44, pardo:44, preto:8, indigena:2, amarelo:2 }, raca_pred:"Branco",
+    esperanca_vida:75.4, mortalidade_infantil:11.8, mortalidade_materna:52.6,
+    cobertura_sus:73, cobertura_psiquiatrica:4.8,
+    obitos_cardiovascular:172, obitos_cancer:96, obitos_respiratorio:64, obitos_diabetes:43,
+    incidencia_tuberculose:22.4, incidencia_dengue:486, incidencia_sifilis:41.2,
+    saneamento_basico:62, agua_tratada:76,
+    nota:"Uma das maiores incidências de dengue do Brasil em anos epidêmicos. Goiânia é referência em transplantes e oncologia para a região. Sífilis em ascensão. Rede de atenção básica bem estruturada comparada ao Centro-Oeste."
+  },
+  MS: {
+    name:"Mato Grosso do Sul", region:"Região Centro-Oeste", uf:"MS", pop: 2.8,
+    idh:0.769, raca:{ branco:46, pardo:39, preto:6, indigena:8, amarelo:1 }, raca_pred:"Branco",
+    esperanca_vida:75.2, mortalidade_infantil:12.1, mortalidade_materna:54.8,
+    cobertura_sus:76, cobertura_psiquiatrica:4.2,
+    obitos_cardiovascular:174, obitos_cancer:97, obitos_respiratorio:65, obitos_diabetes:44,
+    incidencia_tuberculose:26.2, incidencia_dengue:374, incidencia_sifilis:37.8,
+    saneamento_basico:60, agua_tratada:74,
+    nota:"2ª maior população indígena absoluta. Indicadores de saúde de indígenas Guarani-Kaiowá são alarmantes — desnutrição e suicídio entre crianças e jovens. Dengue endêmica em Campo Grande e cidades do interior."
+  },
+  DF: {
+    name:"Distrito Federal", region:"Região Centro-Oeste", uf:"DF", pop: 3.1,
+    idh:0.824, raca:{ branco:44, pardo:40, preto:12, indigena:1, amarelo:3 }, raca_pred:"Branco",
+    esperanca_vida:78.2, mortalidade_infantil:8.6, mortalidade_materna:36.4,
+    cobertura_sus:58, cobertura_psiquiatrica:7.8,
+    obitos_cardiovascular:154, obitos_cancer:88, obitos_respiratorio:54, obitos_diabetes:36,
+    incidencia_tuberculose:14.2, incidencia_dengue:298, incidencia_sifilis:48.6,
+    saneamento_basico:94, agua_tratada:98,
+    nota:"Melhores indicadores de saúde do Brasil. Referência nacional em alta complexidade (HUB, HRAN, HMIB). Desigualdade profunda: mortalidade infantil e acesso a serviços é radicalmente diferente entre Plano Piloto e Estrutural/Sol Nascente."
+  },
+  MG: {
+    name:"Minas Gerais", region:"Região Sudeste", uf:"MG", pop: 21.4,
+    idh:0.768, raca:{ branco:45, pardo:40, preto:12, indigena:1, amarelo:2 }, raca_pred:"Branco",
+    esperanca_vida:76.2, mortalidade_infantil:11.2, mortalidade_materna:48.6,
+    cobertura_sus:79, cobertura_psiquiatrica:5.2,
+    obitos_cardiovascular:182, obitos_cancer:112, obitos_respiratorio:72, obitos_diabetes:48,
+    incidencia_tuberculose:22.8, incidencia_dengue:428, incidencia_sifilis:42.4,
+    saneamento_basico:72, agua_tratada:84,
+    nota:"Estado com maior rede de Caps do Brasil. Dengue com grandes epidemias em 2019 e 2024. Alta carga de doenças cardiovasculares e câncer. Vale do Jequitinhonha e Norte de MG com indicadores similares ao Nordeste."
+  },
+  ES: {
+    name:"Espírito Santo", region:"Região Sudeste", uf:"ES", pop: 4.1,
+    idh:0.775, raca:{ branco:44, pardo:36, preto:17, indigena:1, amarelo:2 }, raca_pred:"Branco",
+    esperanca_vida:76.8, mortalidade_infantil:10.8, mortalidade_materna:44.2,
+    cobertura_sus:77, cobertura_psiquiatrica:5.0,
+    obitos_cardiovascular:178, obitos_cancer:107, obitos_respiratorio:68, obitos_diabetes:46,
+    incidencia_tuberculose:28.4, incidencia_dengue:362, incidencia_sifilis:44.8,
+    saneamento_basico:74, agua_tratada:86,
+    nota:"Rede hospitalar concentrada na Grande Vitória. Alta carga de tuberculose comparada ao Sudeste. Doenças crônicas são o principal desafio. Santa Casa de Misericórdia é referência regional."
+  },
+  RJ: {
+    name:"Rio de Janeiro", region:"Região Sudeste", uf:"RJ", pop: 17.5,
+    idh:0.796, raca:{ branco:43, pardo:36, preto:18, indigena:1, amarelo:2 }, raca_pred:"Branco",
+    esperanca_vida:76.4, mortalidade_infantil:10.4, mortalidade_materna:46.8,
+    cobertura_sus:69, cobertura_psiquiatrica:6.4,
+    obitos_cardiovascular:188, obitos_cancer:118, obitos_respiratorio:74, obitos_diabetes:50,
+    incidencia_tuberculose:72.4, incidencia_dengue:512, incidencia_sifilis:58.2,
+    saneamento_basico:78, agua_tratada:88,
+    nota:"Maior taxa de tuberculose do Sudeste — doença associada à superlotação nas favelas. Rio é epicentro de surtos de dengue e outras arboviroses. INCA referência nacional em oncologia. Crise no sistema de saúde municipal e estadual na última década."
+  },
+  SP: {
+    name:"São Paulo", region:"Região Sudeste", uf:"SP", pop: 46.6,
+    idh:0.826, raca:{ branco:55, pardo:30, preto:11, indigena:1, amarelo:3 }, raca_pred:"Branco",
+    esperanca_vida:77.8, mortalidade_infantil:9.2, mortalidade_materna:38.4,
+    cobertura_sus:67, cobertura_psiquiatrica:7.2,
+    obitos_cardiovascular:174, obitos_cancer:116, obitos_respiratorio:68, obitos_diabetes:48,
+    incidencia_tuberculose:36.8, incidencia_dengue:384, incidencia_sifilis:54.6,
+    saneamento_basico:92, agua_tratada:96,
+    nota:"Maior complexo hospitalar da América Latina (HCFMUSP). Alta incidência absoluta de dengue e tuberculose pela densidade populacional. Desigualdade marcante: periferia da RMSP com indicadores semelhantes ao Nordeste. Envelhecimento populacional rápido."
+  },
+  PR: {
+    name:"Paraná", region:"Região Sul", uf:"PR", pop: 11.5,
+    idh:0.792, raca:{ branco:64, pardo:25, preto:8, indigena:1, amarelo:2 }, raca_pred:"Branco",
+    esperanca_vida:77.2, mortalidade_infantil:9.8, mortalidade_materna:40.6,
+    cobertura_sus:74, cobertura_psiquiatrica:6.1,
+    obitos_cardiovascular:176, obitos_cancer:113, obitos_respiratorio:69, obitos_diabetes:47,
+    incidencia_tuberculose:18.4, incidencia_dengue:448, incidencia_sifilis:38.6,
+    saneamento_basico:84, agua_tratada:92,
+    nota:"Dengue com epidemia histórica em 2024, superando 1 milhão de casos. Rede de saúde bem distribuída com hospitais universitários em Curitiba, Maringá e Londrina. Envelhecimento acelerado eleva carga de doenças crônicas."
+  },
+  SC: {
+    name:"Santa Catarina", region:"Região Sul", uf:"SC", pop: 7.8,
+    idh:0.808, raca:{ branco:73, pardo:18, preto:7, indigena:1, amarelo:1 }, raca_pred:"Branco",
+    esperanca_vida:78.6, mortalidade_infantil:8.8, mortalidade_materna:32.4,
+    cobertura_sus:71, cobertura_psiquiatrica:6.4,
+    obitos_cardiovascular:168, obitos_cancer:110, obitos_respiratorio:62, obitos_diabetes:42,
+    incidencia_tuberculose:12.4, incidencia_dengue:286, incidencia_sifilis:32.8,
+    saneamento_basico:88, agua_tratada:94,
+    nota:"Melhores indicadores de saúde fora do DF. Menor mortalidade infantil e materna do país. Rede de atenção primária sólida. Câncer é a principal causa de mortalidade, refletindo envelhecimento e baixa mortalidade por causas infecciosas."
+  },
+  RS: {
+    name:"Rio Grande do Sul", region:"Região Sul", uf:"RS", pop: 11.4,
+    idh:0.787, raca:{ branco:72, pardo:19, preto:7, indigena:1, amarelo:1 }, raca_pred:"Branco",
+    esperanca_vida:77.4, mortalidade_infantil:9.4, mortalidade_materna:38.2,
+    cobertura_sus:72, cobertura_psiquiatrica:6.8,
+    obitos_cardiovascular:186, obitos_cancer:118, obitos_respiratorio:72, obitos_diabetes:50,
+    incidencia_tuberculose:20.4, incidencia_dengue:218, incidencia_sifilis:36.4,
+    saneamento_basico:86, agua_tratada:93,
+    nota:"Maior mortalidade por doenças cardiovasculares e câncer do Sul, reflexo do envelhecimento mais acentuado. Catástrofes climáticas de 2024 geraram crise sanitária com surtos de leptospirose. HCPA referência em ensino e pesquisa."
+  }
+};
+
+function cls_idh(v) { return v >= 0.770 ? 'good' : v >= 0.700 ? 'medium' : 'bad'; }
+function cls_mort(v) { return v <= 10 ? 'good' : v <= 16 ? 'medium' : 'bad'; }
+function cls_mat(v)  { return v <= 45 ? 'good' : v <= 70 ? 'medium' : 'bad'; }
+function cls_san(v)  { return v >= 75 ? 'good' : v >= 45 ? 'medium' : 'bad'; }
+function cls_tb(v)   { return v <= 20 ? 'good' : v <= 45 ? 'medium' : 'bad'; }
+function cls_den(v)  { return v <= 200 ? 'good' : v <= 400 ? 'medium' : 'bad'; }
+function cls_cardio(v){ return v <= 170 ? 'good' : v <= 190 ? 'medium' : 'bad'; }
+function cls_esp(v)  { return v >= 77 ? 'good' : v >= 73 ? 'medium' : 'bad'; }
+
+function nivel_label(n) { return n === 'low' ? 'Baixo' : n === 'mid' ? 'Moderado' : 'Alto'; }
+
+function buildCard(data) {
+  const idhc = cls_idh(data.idh);
+  const idhLabel = data.idh >= 0.800 ? 'Muito Alto' : data.idh >= 0.770 ? 'Alto' : data.idh >= 0.700 ? 'Médio' : 'Baixo';
+  const idhBadgeClass = data.idh >= 0.770 ? 'alto' : data.idh >= 0.700 ? 'medio' : 'baixo';
+  const racaKey = data.raca_pred.toLowerCase();
+  const racaPct = data.raca[racaKey] || data.raca[Object.keys(data.raca).find(k => k === racaKey)] || '—';
+
+  const header = `
+    <div class="state-label">Perfil Socioepidemiológico</div>
+    <div class="state-name">${data.name}</div>
+    <div class="state-region">${data.region} · ${data.uf} · ${data.pop}M hab.</div>
+  `;
+
+  const racebars = Object.entries(data.raca).map(([k, v]) => `
+    <div class="race-row">
+      <span class="race-name">${k.charAt(0).toUpperCase()+k.slice(1)}</span>
+      <div class="race-bar-wrap"><div class="race-bar bar-${k}" style="width:${v}%"></div></div>
+      <span class="race-pct">${v}%</span>
+    </div>
+  `).join('');
+
+  const body = `
+    <!-- HERO: IDH + RAÇA -->
+    <div class="hero-strip">
+      <div class="hero-card">
+        <div class="hero-label">IDH — 2022</div>
+        <div class="hero-value ${idhc}">${data.idh.toFixed(3)}</div>
+        <span class="idh-class-badge ${idhBadgeClass}">${idhLabel}</span>
+        <div class="hero-sub">Índice de Desenvolvimento Humano</div>
+      </div>
+      <div class="hero-card">
+        <div class="hero-label">Raça Predominante</div>
+        <div class="raca-badge" style="margin-top:6px">
+          <span class="raca-dot ${racaKey}"></span>
+          <span class="hero-value" style="font-size:18px;color:var(--text)">${data.raca_pred}</span>
+        </div>
+        <div class="hero-sub" style="margin-top:8px">${racaPct}% da população (Censo 2022)</div>
+      </div>
+    </div>
+
+    <!-- COMPOSIÇÃO RACIAL -->
+    <div>
+      <div class="metric-section-title">Composição Racial da População</div>
+      <div class="race-bars">${racebars}</div>
+    </div>
+
+    <div>
+      <div class="metric-section-title">Mortalidade &amp; Expectativa de Vida</div>
+      <div class="metrics-grid">
+        <div class="metric-item">
+          <div class="metric-label">Esperança de Vida</div>
+          <div class="metric-value ${cls_esp(data.esperanca_vida)}">${data.esperanca_vida} anos</div>
+          <div class="metric-sub">Ao nascer (ambos os sexos)</div>
+        </div>
+        <div class="metric-item">
+          <div class="metric-label">Mortalidade Infantil</div>
+          <div class="metric-value ${cls_mort(data.mortalidade_infantil)}">${data.mortalidade_infantil}</div>
+          <div class="metric-sub">Óbitos por mil nascidos vivos</div>
+        </div>
+        <div class="metric-item">
+          <div class="metric-label">Mortalidade Materna</div>
+          <div class="metric-value ${cls_mat(data.mortalidade_materna)}">${data.mortalidade_materna}</div>
+          <div class="metric-sub">Óbitos por 100 mil NV</div>
+        </div>
+        <div class="metric-item">
+          <div class="metric-label">Cobertura SUS</div>
+          <div class="metric-value ${data.cobertura_sus >= 80 ? 'medium' : data.cobertura_sus >= 65 ? 'medium' : 'good'}">${data.cobertura_sus}%</div>
+          <div class="metric-sub">Pop. dependente exclusiva do SUS</div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="metric-section-title">Causas de Óbito (por 100 mil hab.)</div>
+      <div class="metrics-grid">
+        <div class="metric-item">
+          <div class="metric-label">Cardiovascular</div>
+          <div class="metric-value ${cls_cardio(data.obitos_cardiovascular)}" style="font-size:17px">${data.obitos_cardiovascular}</div>
+          <div class="metric-sub">Principal causa de morte no BR</div>
+        </div>
+        <div class="metric-item">
+          <div class="metric-label">Câncer</div>
+          <div class="metric-value medium" style="font-size:17px">${data.obitos_cancer}</div>
+          <div class="metric-sub">Neoplasias malignas</div>
+        </div>
+        <div class="metric-item">
+          <div class="metric-label">Respiratório</div>
+          <div class="metric-value medium" style="font-size:17px">${data.obitos_respiratorio}</div>
+          <div class="metric-sub">DPOC, pneumonias, asma</div>
+        </div>
+        <div class="metric-item">
+          <div class="metric-label">Diabetes</div>
+          <div class="metric-value medium" style="font-size:17px">${data.obitos_diabetes}</div>
+          <div class="metric-sub">Mellitus tipos 1 e 2</div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="metric-section-title">Doenças Infecciosas (incid. por 100 mil)</div>
+      <div class="metrics-grid">
+        <div class="metric-item">
+          <div class="metric-label">Tuberculose</div>
+          <div class="metric-value ${cls_tb(data.incidencia_tuberculose)}" style="font-size:17px">${data.incidencia_tuberculose}</div>
+          <div class="metric-sub">Doença marcadora de pobreza</div>
+        </div>
+        <div class="metric-item">
+          <div class="metric-label">Dengue</div>
+          <div class="metric-value ${cls_den(data.incidencia_dengue)}" style="font-size:17px">${data.incidencia_dengue}</div>
+          <div class="metric-sub">Arbovirose de maior impacto</div>
+        </div>
+        <div class="metric-item">
+          <div class="metric-label">Sífilis</div>
+          <div class="metric-value medium" style="font-size:17px">${data.incidencia_sifilis}</div>
+          <div class="metric-sub">Adquirida (adultos)</div>
+        </div>
+        <div class="metric-item">
+          <div class="metric-label">Saúde Mental</div>
+          <div class="metric-value ${data.cobertura_psiquiatrica >= 6 ? 'good' : data.cobertura_psiquiatrica >= 4 ? 'medium' : 'bad'}" style="font-size:17px">${data.cobertura_psiquiatrica}</div>
+          <div class="metric-sub">Leitos psiquiátricos / 100k hab.</div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="metric-section-title">Saneamento Básico</div>
+      <div class="metrics-grid">
+        <div class="metric-item">
+          <div class="metric-label">Saneamento Adequado</div>
+          <div class="metric-value ${cls_san(data.saneamento_basico)}">${data.saneamento_basico}%</div>
+          <div class="metric-sub">Domicílios c/ esgoto e coleta</div>
+        </div>
+        <div class="metric-item">
+          <div class="metric-label">Água Tratada</div>
+          <div class="metric-value ${cls_san(data.agua_tratada)}">${data.agua_tratada}%</div>
+          <div class="metric-sub">Domicílios com abastecimento</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px">
+      <div class="metric-section-title" style="margin-bottom:6px">Contexto Epidemiológico</div>
+      <p style="font-size:11px;line-height:1.75;color:var(--muted)">${data.nota}</p>
+    </div>
+
+    <div style="font-size:9px;color:var(--muted);opacity:0.6;line-height:1.6;padding:0 2px 4px">
+      Fontes: IBGE Censo 2022 · DATASUS/SIM · SINAN/SVS · ANS 2023 · IPEA · Atlas Brasil
+    </div>
+  `;
+
+  return { header, body };
+}
+
+// ========== INTERAÇÃO ==========
+let activeState = null;
+const tooltip = document.getElementById('tooltip');
+const placeholder = document.getElementById('placeholder');
+const dataCard = document.getElementById('data-card');
+const cardHeader = document.getElementById('card-header');
+const cardBody = document.getElementById('card-body');
+const modalOverlay = document.getElementById('modal-overlay');
+const modalHeader = document.getElementById('modal-header');
+const modalBody = document.getElementById('modal-body');
+
+document.querySelectorAll('#brazil-map path').forEach(path => {
+  const uf = path.dataset.state;
+  const data = stateData[uf];
+  if (!data) return;
+
+  path.addEventListener('mouseenter', (e) => {
+    tooltip.textContent = data.name;
+    tooltip.classList.add('visible');
+  });
+
+  path.addEventListener('mousemove', (e) => {
+    tooltip.style.left = (e.clientX + 14) + 'px';
+    tooltip.style.top = (e.clientY - 36) + 'px';
+  });
+
+  path.addEventListener('mouseleave', () => {
+    tooltip.classList.remove('visible');
+  });
+
+  path.addEventListener('click', (e) => {
+    if (activeState) activeState.classList.remove('active');
+    path.classList.add('active');
+    activeState = path;
+
+    const { header, body } = buildCard(data);
+    const isMobile = window.innerWidth < 768;
+
+    if (isMobile) {
+      // Mobile: modal balloon
+      modalHeader.innerHTML = `
+        <div>
+          <div class="state-label">Estado Brasileiro</div>
+          <div class="state-name">${data.name}</div>
+          <div class="state-region">${data.region} · ${data.uf}</div>
+        </div>
+        <button class="modal-close" id="modal-close-btn">&#215;</button>
+      `;
+      modalBody.innerHTML = body;
+      modalOverlay.classList.add('open');
+      setTimeout(() => {
+        modalBody.querySelectorAll('.race-bar, .risk-bar').forEach(b => {
+          const w = b.style.width; b.style.width = '0';
+          setTimeout(() => b.style.width = w, 50);
+        });
+        const btn = document.getElementById('modal-close-btn');
+        if (btn) btn.addEventListener('click', closeModal);
+      }, 10);
+    } else {
+      // Desktop: side panel
+      cardHeader.innerHTML = header;
+      cardBody.innerHTML = body;
+      placeholder.style.display = 'none';
+      dataCard.classList.add('active');
+      dataCard.scrollTop = 0;
+      setTimeout(() => {
+        dataCard.querySelectorAll('.race-bar, .risk-bar').forEach(b => {
+          const w = b.style.width; b.style.width = '0';
+          setTimeout(() => b.style.width = w, 50);
+        });
+      }, 10);
+    }
+  });
+});
+
+function closeModal() {
+  modalOverlay.classList.remove('open');
+}
+
+modalOverlay.addEventListener('click', (e) => {
+  if (e.target === modalOverlay) closeModal();
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeModal();
+});
+</script>
+</body>
+</html>
+
+
+
